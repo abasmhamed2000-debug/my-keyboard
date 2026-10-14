@@ -24,7 +24,7 @@ class SettingsActivity : Activity() {
         root.layoutDirection = View.LAYOUT_DIRECTION_RTL
 
         val title = TextView(this)
-        title.text = "إعدادات كيبوردي"
+        title.text = "إعدادات كيبورد بحر"
         title.textSize = 24f
         root.addView(title)
 
@@ -63,6 +63,28 @@ class SettingsActivity : Activity() {
             override fun onStopTrackingTouch(bar: SeekBar?) {}
         })
         root.addView(seek)
+
+        val delayLabel = TextView(this)
+        delayLabel.textSize = 18f
+        delayLabel.setPadding(0, 48, 0, 0)
+        root.addView(delayLabel)
+
+        val delaySeek = SeekBar(this)
+        delaySeek.max = 470
+        val savedDelay = prefs.getInt("delay", 100)
+        delaySeek.progress = savedDelay - 30
+        delayLabel.text = "وقت الإرسال التلقائي (زر تلقائي): $savedDelay ميلي ثانية"
+
+        delaySeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val d = 30 + progress
+                delayLabel.text = "وقت الإرسال التلقائي (زر تلقائي): $d ميلي ثانية"
+                prefs.edit().putInt("delay", d).apply()
+            }
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {}
+        })
+        root.addView(delaySeek)
 
         setContentView(root)
     }
