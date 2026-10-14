@@ -3,6 +3,8 @@ package com.mykeyboard
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -23,6 +25,10 @@ class MyKeyboardService : InputMethodService() {
     private var typed = 0
     private var tafkeek = false
     private var arabicDigits = false
+    private var wordMode = 0 // 0 مطفي، 1 المسافة ترسل، 2 إرسال بالمؤقت
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val sendRunnable = Runnable { sendIfNotEmpty() }
 
     override fun onCreateInputView(): View = build()
 
@@ -30,6 +36,11 @@ class MyKeyboardService : InputMethodService() {
         super.onStartInputView(info, restarting)
         typed = 0
         setInputView(build())
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        cancelTimer()
     }
 
     private fun refresh() {
@@ -57,12 +68,13 @@ class MyKeyboardService : InputMethodService() {
         weight: Float = 1f,
         color: Int = keyColor,
         textColor: Int = Color.WHITE,
+        size: Float = 18f,
         onClick: () -> Unit
     ): TextView {
         val t = TextView(this)
         t.text = label
         t.gravity = Gravity.CENTER
-        t.textSize = 18f * scale
+        t.textSize = size * scale
         t.setTextColor(textColor)
         val shape = GradientDrawable()
         shape.cornerRadius = dp(8).toFloat()
@@ -83,20 +95,35 @@ class MyKeyboardService : InputMethodService() {
     }
 
     private fun modeKey(label: String, n: Int): TextView =
-        key(label, 1f, if (autoDigits == n) accentOn else keyColor, accent) {
+        key(label, 1f, if (autoDigits == n) accentOn else keyColor, accent, 13f) {
             autoDigits = n
             typed = 0
             showNumbers = true
             refresh()
         }
 
+    private fun toggleWord(mode: Int) {
+        wordMode = if (wordMode == mode) 0 else mode
+        cancelTimer()
+        autoDigits = 0
+        typed = 0
+        showNumbers = false
+        refresh()
+    }
+
     private fun topRow(): LinearLayout = row(
         modeKey("1 خانه", 1),
         modeKey("2 خانه", 2),
         modeKey("3 خانه", 3),
-        key("تفكيك", 1f, if (tafkeek) accentOn else keyColor, accent) {
+        key("تفكيك", 1f, if (tafkeek) accentOn else keyColor, accent, 13f) {
             tafkeek = !tafkeek
             refresh()
+        },
+        key("كلمة", 1f, if (wordMode == 1) accentOn else keyColor, accent, 13f) {
+            toggleWord(1)
+        },
+        key("تلقائي", 1f, if (wordMode == 2) accentOn else keyColor, accent, 13f) {
+            toggleWord(2)
         }
     )
 
@@ -121,7 +148,7 @@ class MyKeyboardService : InputMethodService() {
                     refresh()
                 },
                 key("،") { typeText("،") },
-                key("مسافة", 4f) { typeText(" ") },
+                key("مسافة", 4f) { spaceTap() },
                 key(".") { typeText(".") },
                 key("⏎", 1.3f, keyColor, accent) { sendEnter() }
             )
@@ -161,7 +188,29 @@ class MyKeyboardService : InputMethodService() {
         ))
     }
 
+    private fun cancelTimer() {
+        handler.removeCallbacks(sendRunnable)
+    }
+
+    private fun scheduleSend() {
+        cancelTimer()
+        val delay = getSharedPreferences("kb", MODE_PRIVATE).getInt("delay", 100)
+        handler.postDelayed(sendRunnable, delay.toLong())
+    }
+
+    private fun sendIfNotEmpty() {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(1, 0)?.toString() ?: ""
+        if (before.isNotEmpty()) sendEnter()
+    }
+
+    private fun spaceTap() {
+        cancelTimer()
+        if (wordMode != 0) sendIfNotEmpty() else typeText(" ")
+    }
+
     private fun typeText(s: String) {
+        cancelTimer()
         currentInputConnection?.commitText(s, 1)
     }
 
@@ -173,6 +222,7 @@ class MyKeyboardService : InputMethodService() {
             if (prev.isNotEmpty() && !prev[0].isWhitespace()) text = " $ch"
         }
         ic.commitText(text, 1)
+        if (wordMode == 2) scheduleSend()
     }
 
     private fun typeDigit(c: Char) {
@@ -189,11 +239,13 @@ class MyKeyboardService : InputMethodService() {
     }
 
     private fun backspace() {
+        cancelTimer()
         currentInputConnection?.deleteSurroundingText(1, 0)
         if (typed > 0) typed--
     }
 
     private fun sendEnter() {
+        cancelTimer()
         val ic = currentInputConnection ?: return
         val ei = currentInputEditorInfo
         val options = ei?.imeOptions ?: 0
